@@ -17,8 +17,10 @@ FPS = 60
 BALL_RADIUS = 10
 BALL_COLOR = (255, 0, 0)
 BALL_COLORS = {2: (0, 0, 255)}
-BIVM = BALL_INITIAL_VELOCITY_MAGNITUDE = 400
+BIVM = BALL_INITIAL_VELOCITY_MAGNITUDE = 40
 GAME_FONT = pygame.freetype.SysFont("None", 24)
+hit_count = 0
+HIT_COUNT_TO_EXPLODE = 100
 
 def convert_coordinates(point):
     return int(point[0]), DISPLAY_HEIGHT - int(point[1])
@@ -45,7 +47,15 @@ class Ball():
         return self.shape.collision_type
 
 def collide(arbiter, space, data):
-    print("collide")
+    global hit_count
+
+    # print("collide")
+    # draw a line?
+    # explode any red ball?
+    hit_count += 1
+    if hit_count % HIT_COUNT_TO_EXPLODE == 0:
+        print("BOOM")
+        # Ball(self.)
     return True
 
 def create_balls():
@@ -74,11 +84,13 @@ def game():
                     balls.extend(more_balls)
         display.fill(DISPLAY_COLOR)
 
-        GAME_FONT.render_to(display, (40, 40), "More [B]alls", (0, 0, 0))
-
         # ball.draw()
         # ball_2.draw()
         [ball.draw() for ball in balls]
+
+        GAME_FONT.render_to(display, (40, 40), "More [B]alls", (0, 0, 0))
+        GAME_FONT.render_to(display, (40, 60), "Hit Count: " + str(hit_count), (0, 0, 0))
+
 
         pygame.display.update()
         clock.tick(FPS)
