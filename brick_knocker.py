@@ -12,13 +12,15 @@ from pymunk import Vec2d
 
 PYGAME_COLOR_WHITE = pygame.Color("white")
 FONT_COLOR = PYGAME_COLOR_WHITE
-WIDTH, HEIGHT = 600, 600
+WIDTH, HEIGHT = 1200, 600
 DEFAULT_POSITION = 100, 300
 DEFAULT_DIRECTION = 1000, -600
+DIRECTION_TILT_RANGE_TUPLE = (-300, 300)
 DRAW_FPS = True
 COLLISION_TYPES = {
     "ball": 1,
     "brick": 2,
+    "wall": 3,
 }
 BALL_ELASTICITY = 0.7
 BRICK_ELASTICITY = 0.0000001
@@ -38,6 +40,7 @@ class EventState(Enum):
 
 space = None
 state = []
+sfx = {}
 
 
 # class Ball(pygame.sprite.Sprite):
@@ -65,7 +68,7 @@ def spawn_ball(space: pymunk.Space, position: Union[Vec2d, Tuple[float, float]],
     ball_body.position = position
 
     ball_shape = pymunk.Circle(ball_body, 5)
-    ball_shape.color = pygame.Color("green")
+    ball_shape.color = pygame.Color("pink")
     ball_shape.elasticity = BALL_ELASTICITY
     ball_shape.collision_type = COLLISION_TYPES["ball"]
 
@@ -73,25 +76,20 @@ def spawn_ball(space: pymunk.Space, position: Union[Vec2d, Tuple[float, float]],
 
     space.add(ball_body, ball_shape)
 
+    sfx["ball"]["catch"][0].play()
 
-def setup_level(space, player_body=None):
+
+def setup_level(space):
     """
     Populate with initial components
     :param space:
-    :param player_body:
     """
-    # Remove balls and bricks
-    for s in space.shapes[:]:
-        if s.body.body_type == pymunk.Body.DYNAMIC:
-            space.remove(s.body, s)
+    remove_balls_bricks(space)
 
-    # Spawn a ball for the player to have something to play with
-
-    fire_ball(player_body, space)
+    fire_ball(space)
 
     # Spawn bricks
 
-    # Brick drop
     one_brick = False
     if one_brick:
         brick_body = pymunk.Body(body_type=pymunk.Body.DYNAMIC)
@@ -105,38 +103,85 @@ def setup_level(space, player_body=None):
     else:
         spawn_bricks(space)
 
-    # # Make bricks be removed when hit by ball
-    # def remove_brick(arbiter, space, data):
-    #     brick_shape = arbiter.shapes[0]
-    #     space.remove(brick_shape, brick_shape.body)
-    #
-    # h = space.add_collision_handler(collision_types["brick"], collision_types["ball"])
-    # h.separate = remove_brick
+    handle_brick_brick = space.add_collision_handler(COLLISION_TYPES["brick"], COLLISION_TYPES["brick"])
+    handle_brick_brick.begin = brick_brick_collide
 
-    # Game area
-    # walls
+    handle_brick_ball = space.add_collision_handler(COLLISION_TYPES["brick"], COLLISION_TYPES["ball"])
+    handle_brick_ball.begin = brick_ball_collide
+
+    spawn_walls(space)
+
+
+def spawn_walls(space):
     line_radius = 20
+    wall_left = 50
+    wall_right = WIDTH - 50
+    wall_bottom = 50
+    wall_top = HEIGHT - 50
     static_lines = [
-        pymunk.Segment(space.static_body, (50, 50), (550, 50), line_radius),  # Top
-        # pymunk.Segment(space.static_body, (550, 550), (550, 50), line_radius), # Right
-        # pymunk.Segment(space.static_body, (50, 550), (50, 50), line_radius), # Left
-        pymunk.Segment(space.static_body, (50, 550), (550, 550), line_radius),  # Bottom
-
+        pymunk.Segment(space.static_body, (wall_left, wall_top),
+                       (wall_right, wall_top), line_radius),  # Top
+        # pymunk.Segment(space.static_body, (550, 550),
+        #               (550, 50), line_radius), # Right
+        # pymunk.Segment(space.static_body, (50, 550),
+        #               (50, 50), line_radius), # Left
+        pymunk.Segment(space.static_body, (wall_left, wall_bottom),
+                       (wall_right, wall_bottom - 25), line_radius),  # Bottom
     ]
     for line in static_lines:
         line.color = pygame.Color("orange")
         line.elasticity = 1.0
         line.friction = 0.62
-
+        line.collision_type = COLLISION_TYPES["wall"]
     space.add(*static_lines)
+    handle_wall_ball = space.add_collision_handler(COLLISION_TYPES["wall"], COLLISION_TYPES["ball"])
+    handle_wall_ball.begin = wall_ball_collide
+    handle_wall_ball = space.add_collision_handler(COLLISION_TYPES["wall"], COLLISION_TYPES["brick"])
+    handle_wall_ball.begin = wall_brick_collide
 
 
-def fire_ball(player_body, space):
-    tilt = random.randrange(-200, 200)
+def remove_balls_bricks(space):
+    for s in space.shapes[:]:
+        if s.body.body_type == pymunk.Body.DYNAMIC:
+            space.remove(s.body, s)
+
+
+def brick_brick_collide(arbiter, space, data):
+    if arbiter.shapes[0].body.kinetic_energy > 40000:
+        c = sfx["brick"]["impact"][0].play()
+    elif arbiter.shapes[0].body.kinetic_energy > 10000:
+        c = sfx["brick"]["impact"][1].play()
+    elif arbiter.shapes[0].body.kinetic_energy > 500:
+        c = sfx["brick"]["scrape"][0].play()
+    return True
+
+
+def brick_ball_collide(arbiter, space, data):
+    if arbiter.shapes[1].body.kinetic_energy > 40000:
+        c = sfx["ball"]["bounce"][0].play()
+    return True
+
+
+def wall_ball_collide(arbiter, space, data):
+    if arbiter.shapes[1].body.kinetic_energy > 100000:
+        c = sfx["ball"]["bounce"][0].play()
+    return True
+
+
+def wall_brick_collide(arbiter, space, data):
+    if arbiter.shapes[1].body.kinetic_energy > 100000:
+        c = sfx["brick"]["impact"][0].play()
+    elif arbiter.shapes[1].body.kinetic_energy > 500:
+        c = sfx["brick"]["scrape"][0].play()
+    return True
+
+
+def fire_ball(space):
+    tilt = random.randrange(*DIRECTION_TILT_RANGE_TUPLE)
     ball_direction = (DEFAULT_DIRECTION[0], DEFAULT_DIRECTION[1] + tilt)
     spawn_ball(
         space,
-        DEFAULT_POSITION if player_body is None else player_body.position + (0, 40),
+        DEFAULT_POSITION,
         ball_direction,
     )
 
@@ -184,15 +229,18 @@ def cleanup_bodies(space):
         ):
             space.remove(s.body, s)
             count += 1
+    debug_print(f"Cleaned up {count} bodies")
+
+
+def debug_print(self, *args):
     if DEBUG_LOG:
-        print(f"Cleaned up {count} bodies")
+        print(self, args)
 
 
-def parse_events(player_body, running, space):
+def parse_events(running, space):
     """
     Extract events from user input. May return multiple events if non-terminal.
 
-    :param player_body:
     :param running:
     :param space:
     :return: Terminal events as a single element list. Continuous events in a multiple element list.
@@ -228,6 +276,33 @@ def parse_events(player_body, running, space):
     return result
 
 
+def load_sfx():
+    pygame.mixer.set_num_channels(32)
+
+    global sfx
+    sfx = {
+        "brick": {
+            "impact": [
+                pygame.mixer.Sound("sfx/brick_sounds/impact/brick_impact_01.mp3"),
+                pygame.mixer.Sound("sfx/brick_sounds/impact/brick_impact_03.mp3")
+            ],
+            "scrape": [
+                pygame.mixer.Sound("sfx/brick_sounds/scrape/brick_scrape_02.mp3"),
+            ]
+        },
+        "ball": {
+            "bounce": [
+                pygame.mixer.Sound("sfx/ball_sounds/bounce/rubber_ball_bounce_cement_04.wav"),
+            ],
+            "catch": [
+                pygame.mixer.Sound("sfx/ball_sounds/catch/rubber_ball_catch_03.mp3"),
+            ]
+        }
+    }
+
+    sfx["brick"]["scrape"][0].set_volume(0.5)
+
+
 def main():
     running = True
 
@@ -236,6 +311,7 @@ def main():
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("Arial", 16)
+    load_sfx()
 
     # Physics stuff
     space = pymunk.Space()
@@ -245,42 +321,9 @@ def main():
     pymunk.pygame_util.positive_y_is_up = True
     draw_options = pymunk.pygame_util.DrawOptions(screen)
 
-    # ### Player ship
-    # player_body = pymunk.Body(500, float("inf"))
-    player_body = None
-    # player_body.position = 300, 100
-    #
-    # player_shape = pymunk.Segment(player_body, (-50, 0), (50, 0), 8)
-    # player_shape.color = pygame.Color("red")
-    # player_shape.elasticity = 1.0
-    # player_shape.collision_type = collision_types["player"]
-
-    # def pre_solve(arbiter, space, data):
-    #     # We want to update the collision normal to make the bounce direction
-    #     # dependent of where on the paddle the ball hits. Note that this
-    #     # calculation isn't perfect, but just a quick example.
-    #     set_ = arbiter.contact_point_set
-    #     if len(set_.points) > 0:
-    #         player_shape = arbiter.shapes[0]
-    #         width = (player_shape.b - player_shape.a).x
-    #         delta = (player_shape.body.position - set_.points[0].point_a).x
-    #         normal = Vec2d(0, 1).rotated(delta / width / 2)
-    #         set_.normal = normal
-    #         set_.points[0].distance = 0
-    #     arbiter.contact_point_set = set_
-    #     return True
-    #
-    # h = space.add_collision_handler(collision_types["player"], collision_types["ball"])
-    # h.pre_solve = pre_solve
-
-    # # restrict movement of player to a straigt line
-    # move_joint = pymunk.GrooveJoint(
-    #     space.static_body, player_body, (100, 100), (500, 100), (0, 0)
-    # )
-    # space.add(player_body, player_shape, move_joint)
     global state
+
     # Start game
-    # setup_level(space, player_body)
     setup_level(space)
     last_time_culled = 0.0
 
@@ -292,17 +335,17 @@ def main():
             last_time_culled = current_time
 
         # TIP: https://learnpython.com/blog/python-match-case-statement/
-        events = parse_events(player_body, running, space)
+        events = parse_events(running, space)
         for event in events:
             match event:
                 case EventState.Run:
                     pass
                 case EventState.Restart:
-                    setup_level(space, None)
+                    setup_level(space)
                 case EventState.Stop:
                     running = False
                 case EventState.SpawnBall:
-                    fire_ball(player_body, space)
+                    fire_ball(space)
                 case EventState.SpawnBricks:
                     spawn_bricks(space)
                 case EventState.Debug:
