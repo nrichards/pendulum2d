@@ -2,13 +2,16 @@
 if __name__ == '__main__':
     print("main")
 
-import ball_pit
+# import ball_pit
 
 # import deformable
 # deformable.main()
 
 # import breakout
 # breakout.main()
+
+import brick_knocker
+brick_knocker.main()
 
 '''
 Packages
