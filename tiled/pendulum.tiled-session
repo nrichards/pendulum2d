@@ -3,19 +3,47 @@
         "height": 4300,
         "width": 2
     },
-    "activeFile": "",
+    "activeFile": "tileset/example.tmx",
     "expandedProjectPaths": [
+        "tileset",
+        "."
     ],
     "file.lastUsedOpenFilter": "All Files (*)",
     "fileStates": {
         "derp.tsx": {
-            "dynamicWrapping": true
+            "dynamicWrapping": true,
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "tileset/example.tmx": {
+            "scale": 0.9321875,
+            "selectedLayer": 1,
+            "viewCenter": {
+                "x": 320.75092189071404,
+                "y": 321.2872946697955
+            }
+        },
+        "tileset/example.tmx#grass-tiles-2-small": {
+            "scaleInDock": 1
+        },
+        "tileset/example.tmx#littleshrooms_0": {
+            "scaleInDock": 1
+        },
+        "tileset/example.tmx#qubodup-bush_berries_0": {
+            "scaleInDock": 1
+        },
+        "tileset/example.tmx#tree2-final": {
+            "scaleInDock": 1
         }
     },
     "openFiles": [
+        "derp.tsx",
+        "tileset/example.tmx"
     ],
     "project": "pendulum.tiled-project",
     "recentFiles": [
+        "derp.tsx",
+        "tileset/example.tmx"
     ],
     "tileset.lastUsedFormat": "tsx",
     "tileset.type": 1

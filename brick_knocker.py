@@ -1,14 +1,19 @@
 import random
 import sys
-from typing import NamedTuple, Union, Tuple, Callable
-from enum import Enum
 import time
+from enum import Enum
+from typing import Union, Tuple
 
 import pygame
-
 import pymunk
 import pymunk.pygame_util
 from pymunk import Vec2d
+
+"""
+Ideas
+- stochastic golf
+  where you knock several hundred golf balls in order to see how many you need to reach the hole
+"""
 
 PYGAME_COLOR_WHITE = pygame.Color("white")
 FONT_COLOR = PYGAME_COLOR_WHITE
@@ -27,6 +32,7 @@ BRICK_ELASTICITY = 0.0000001
 CULL_PERIOD_SEC = 1.0
 CULL_POSITION = 10 * WIDTH  # NOTE: Removes any physics bodies positioned outside this coordinate (x or y)
 DEBUG_LOG = False
+DEBUG_CAPTURE_STATE = False
 
 
 class EventState(Enum):
@@ -41,42 +47,52 @@ class EventState(Enum):
 space = None
 state = []
 sfx = {}
+ball_count = 0
 
 
-# class Ball(pygame.sprite.Sprite):
-#     def __init__(self, body, shape, position, direction):
-#         super().__init__()
-#         global space
-#
-#         self.body = body
-#         self.shape = shape
-#
-#         self.body.position = position
-#
-#         self.shape.color = pygame.Color("green")
-#         self.shape.elasticity = BALL_ELASTICITY
-#         # self.shape.friction
-#         self.shape.collision_type = COLLISION_TYPES["ball"]
-#
-#         self.body.apply_impulse_at_local_point(Vec2d(*direction))
-#
-#         space.add(self.body, self.shape)
+class BlindSound:
+    def __init__(self, filename):
+        self.sound = None
+        try:
+            self.sound = pygame.mixer.Sound(filename)
+        except FileNotFoundError:
+            print(f"BlindSound: unable to load file: {filename}")
+            pass
+
+    def play(self, loops=0, maxtime=0, fade_ms=0):
+        if self.sound is not None:
+            self.sound.play(loops, maxtime, fade_ms)
+
+    def set_volume(self, value):
+        if self.sound is not None:
+            self.sound.set_volume(value)
 
 
-def spawn_ball(space: pymunk.Space, position: Union[Vec2d, Tuple[float, float]], direction):
-    ball_body = pymunk.Body(1, float("inf"))
-    ball_body.position = position
+def load_sfx():
+    pygame.mixer.set_num_channels(32)
 
-    ball_shape = pymunk.Circle(ball_body, 5)
-    ball_shape.color = pygame.Color("pink")
-    ball_shape.elasticity = BALL_ELASTICITY
-    ball_shape.collision_type = COLLISION_TYPES["ball"]
+    global sfx
+    sfx = {
+        "brick": {
+            "impact": [
+                BlindSound("sfx/brick_sounds/impact/brick_impact_01.mp3"),
+                BlindSound("sfx/brick_sounds/impact/brick_impact_03.mp3")
+            ],
+            "scrape": [
+                BlindSound("sfx/brick_sounds/scrape/brick_scrape_02.mp3"),
+            ]
+        },
+        "ball": {
+            "bounce": [
+                BlindSound("sfx/ball_sounds/bounce/rubber_ball_bounce_cement_04.wav"),
+            ],
+            "catch": [
+                BlindSound("sfx/ball_sounds/catch/rubber_ball_catch_03.mp3"),
+            ]
+        }
+    }
 
-    ball_body.apply_impulse_at_local_point(Vec2d(*direction), (1, 1))
-
-    space.add(ball_body, ball_shape)
-
-    sfx["ball"]["catch"][0].play()
+    sfx["brick"]["scrape"][0].set_volume(0.5)
 
 
 def setup_level(space):
@@ -112,6 +128,25 @@ def setup_level(space):
     spawn_walls(space)
 
 
+def spawn_ball(space: pymunk.Space, position: Union[Vec2d, Tuple[float, float]], direction):
+    ball_body = pymunk.Body(1, float("inf"))
+    ball_body.position = position
+
+    ball_shape = pymunk.Circle(ball_body, 5)
+    ball_shape.color = pygame.Color("pink")
+    ball_shape.elasticity = BALL_ELASTICITY
+    ball_shape.collision_type = COLLISION_TYPES["ball"]
+
+    ball_body.apply_impulse_at_local_point(Vec2d(*direction), (1, 1))
+
+    space.add(ball_body, ball_shape)
+
+    sfx["ball"]["catch"][0].play()
+
+    global ball_count
+    ball_count += 1
+
+
 def spawn_walls(space):
     line_radius = 20
     wall_left = 50
@@ -125,7 +160,7 @@ def spawn_walls(space):
         #               (550, 50), line_radius), # Right
         # pymunk.Segment(space.static_body, (50, 550),
         #               (50, 50), line_radius), # Left
-        pymunk.Segment(space.static_body, (wall_left, wall_bottom),
+        pymunk.Segment(space.static_body, (wall_left, wall_bottom + 25),
                        (wall_right, wall_bottom - 25), line_radius),  # Bottom
     ]
     for line in static_lines:
@@ -138,6 +173,27 @@ def spawn_walls(space):
     handle_wall_ball.begin = wall_ball_collide
     handle_wall_ball = space.add_collision_handler(COLLISION_TYPES["wall"], COLLISION_TYPES["brick"])
     handle_wall_ball.begin = wall_brick_collide
+
+
+def spawn_bricks(space):
+    brick_w = 40
+    brick_height = 20
+    brick_pad = 2
+
+    for x in range(6, 8):
+        x = x * (brick_w + brick_pad) + 100 + brick_height
+        for y in range(0, 4):
+            y = y * (brick_height + brick_pad) + 100 + brick_height
+            brick_body = pymunk.Body(body_type=pymunk.Body.DYNAMIC)
+            brick_body.position = x, y
+            brick_shape = pymunk.Poly.create_box(brick_body, (brick_w, brick_height))
+            brick_shape.color = pygame.Color("brown")
+            brick_shape.group = 1
+            brick_shape.collision_type = COLLISION_TYPES["brick"]
+            brick_shape.mass = 1
+            brick_shape.elasticity = BRICK_ELASTICITY
+            brick_shape.friction = 0.62
+            space.add(brick_body, brick_shape)
 
 
 def remove_balls_bricks(space):
@@ -186,30 +242,10 @@ def fire_ball(space):
     )
 
 
-def spawn_bricks(space):
-    brick_w = 40
-    brick_height = 20
-    brick_pad = 2
-
-    for x in range(6, 8):
-        x = x * (brick_w + brick_pad) + 100 + brick_height
-        for y in range(0, 4):
-            y = y * (brick_height + brick_pad) + 100 + brick_height
-            brick_body = pymunk.Body(body_type=pymunk.Body.DYNAMIC)
-            brick_body.position = x, y
-            brick_shape = pymunk.Poly.create_box(brick_body, (brick_w, brick_height))
-            brick_shape.color = pygame.Color("brown")
-            brick_shape.group = 1
-            brick_shape.collision_type = COLLISION_TYPES["brick"]
-            brick_shape.mass = 1
-            brick_shape.elasticity = BRICK_ELASTICITY
-            brick_shape.friction = 0.62
-            space.add(brick_body, brick_shape)
-
-
 def draw_hud(clock, font, screen):
     if DRAW_FPS is True:
         blit_text(font, screen, "fps: " + str(clock.get_fps()), (0, 0))
+    blit_text(font, screen, f"Balls: {ball_count}", (0, 15))
 
     blit_text(font, screen, "BRICK_KNOCKER", (WIDTH - 150, 0))
     blit_text(font, screen, "[K] to spawn more bricks, add [Shift] to spray", (5, HEIGHT - 50))
@@ -276,33 +312,6 @@ def parse_events(running, space):
     return result
 
 
-def load_sfx():
-    pygame.mixer.set_num_channels(32)
-
-    global sfx
-    sfx = {
-        "brick": {
-            "impact": [
-                pygame.mixer.Sound("sfx/brick_sounds/impact/brick_impact_01.mp3"),
-                pygame.mixer.Sound("sfx/brick_sounds/impact/brick_impact_03.mp3")
-            ],
-            "scrape": [
-                pygame.mixer.Sound("sfx/brick_sounds/scrape/brick_scrape_02.mp3"),
-            ]
-        },
-        "ball": {
-            "bounce": [
-                pygame.mixer.Sound("sfx/ball_sounds/bounce/rubber_ball_bounce_cement_04.wav"),
-            ],
-            "catch": [
-                pygame.mixer.Sound("sfx/ball_sounds/catch/rubber_ball_catch_03.mp3"),
-            ]
-        }
-    }
-
-    sfx["brick"]["scrape"][0].set_volume(0.5)
-
-
 def main():
     running = True
 
@@ -357,11 +366,11 @@ def main():
         ### Draw objects
         space.debug_draw(draw_options)
 
-        ###
-        state = []
-        for x in space.shapes:
-            s = "%s %s %s" % (x, x.body.position, x.body.velocity)
-            state.append(s)
+        if DEBUG_CAPTURE_STATE:
+            state = []
+            for x in space.shapes:
+                s = "%s %s %s" % (x, x.body.position, x.body.velocity)
+                state.append(s)
 
         ### Update physics
         fps = 60
