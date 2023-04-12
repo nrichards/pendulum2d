@@ -9,6 +9,7 @@ import pygame
 import pymunk
 import pymunk.pygame_util
 from pymunk import Vec2d
+from pygame.locals import RESIZABLE
 
 """
 Ideas
@@ -45,6 +46,7 @@ MOVE_DAMPEN_FACTOR = 0.9
 
 
 class EventState(Enum):
+    Mute = auto()
     MoveDown = auto()
     MoveRight = auto()
     MoveLeft = auto()
@@ -84,9 +86,11 @@ drawables = []
 sfx = {}
 ball_count = 0
 player = Player()
+DEFAULT_MUTE = False
 
 
 class BlindSound:
+    mute = DEFAULT_MUTE
     def __init__(self, filename):
         self.sound = None
         try:
@@ -96,6 +100,8 @@ class BlindSound:
             pass
 
     def play(self, loops=0, maxtime=0, fade_ms=0):
+        if self.mute is True:
+            return
         if self.sound is not None:
             self.sound.play(loops, maxtime, fade_ms)
 
@@ -287,7 +293,7 @@ def draw_hud(clock, font, screen):
     blit_text(font, screen, "BRICK_KNOCKER", (WIDTH - 150, 0))
     blit_text(font, screen, "[K] to spawn more bricks, add [Shift] to spray", (5, HEIGHT - 50))
     blit_text(font, screen, "[Space] to spawn a ball, add [Shift] to spray. Cursor arrows to move.", (5, HEIGHT - 35))
-    blit_text(font, screen, "[R] to reset, [ESC] or [Q] to quit", (5, HEIGHT - 20))
+    blit_text(font, screen, "[R] to reset, [ESC] or [Q] to quit, [M] to mute", (5, HEIGHT - 20))
 
 
 def draw_window(surface: pygame.Surface):
@@ -308,6 +314,10 @@ def cleanup_bodies(space):
             space.remove(s.body, s)
             count += 1
     debug_print(f"Cleaned up {count} bodies")
+
+
+def toggle_mute():
+    BlindSound.mute = not BlindSound.mute
 
 
 def debug_print(self, *args):
@@ -340,6 +350,8 @@ def parse_events(running, space):
                 result.append(EventState.SpawnBall)
             elif event.key == pygame.K_d:
                 result.append(EventState.Debug)
+            elif event.key == pygame.K_m:
+                result.append(EventState.Mute)
 
     # Multi-events
     keys = pygame.key.get_pressed()
@@ -367,7 +379,10 @@ def main():
 
     # PyGame init
     pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    screen = pygame.display.set_mode((WIDTH, HEIGHT), RESIZABLE)
+
+    w, h = pygame.display.get_surface().get_size()
+
     clock = pygame.time.Clock()
     font = pygame.font.SysFont("Arial", 16)
     load_sfx()
@@ -410,6 +425,8 @@ def main():
                     spawn_bricks(space)
                 case EventState.Debug:
                     cleanup_bodies(space)
+                case EventState.Mute:
+                    toggle_mute()
                 case EventState.MoveUp:
                     move_dir = move_dir[0] + 0, move_dir[1] - 1
                 case EventState.MoveDown:
