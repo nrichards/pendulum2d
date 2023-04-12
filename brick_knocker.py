@@ -2,6 +2,7 @@ import random
 import sys
 import time
 from enum import Enum
+from enum import auto
 from typing import Union, Tuple
 
 import pygame
@@ -13,13 +14,20 @@ from pymunk import Vec2d
 Ideas
 - stochastic golf
   where you knock several hundred golf balls in order to see how many you need to reach the hole
+
+Improvements
+- modularize the entities and behaviors
+  entities: make it possible to spawn balls from arbitrary locations
+  behaviors: make it possible to attach player-movement to the balls, or the bricks
+- Camera system
+  HOWTO https://www.phind.com/search?cache=3dd266e2-5e53-4944-889f-4e84ba9141ff
 """
 
 PYGAME_COLOR_WHITE = pygame.Color("white")
 FONT_COLOR = PYGAME_COLOR_WHITE
 WIDTH, HEIGHT = 1200, 600
 DEFAULT_POSITION = 100, 300
-DEFAULT_DIRECTION = 1000, -600
+DEFAULT_DIRECTION = 1000, 600
 DIRECTION_TILT_RANGE_TUPLE = (-300, 300)
 DRAW_FPS = True
 COLLISION_TYPES = {
@@ -33,21 +41,49 @@ CULL_PERIOD_SEC = 1.0
 CULL_POSITION = 10 * WIDTH  # NOTE: Removes any physics bodies positioned outside this coordinate (x or y)
 DEBUG_LOG = False
 DEBUG_CAPTURE_STATE = False
+MOVE_DAMPEN_FACTOR = 0.9
 
 
 class EventState(Enum):
-    Run = 1
-    Stop = 2
-    Restart = 3
-    SpawnBall = 4
-    SpawnBricks = 5
-    Debug = 10
+    MoveDown = auto()
+    MoveRight = auto()
+    MoveLeft = auto()
+    MoveUp = auto()
+    Run = auto()
+    Stop = auto()
+    Restart = auto()
+    SpawnBall = auto()
+    SpawnBricks = auto()
+    Debug = auto()
+
+
+DEFAULT_DRAWABLE_COLOR = pygame.color.THECOLORS.get("magenta")
+
+
+class Drawable:
+    def __init__(self, position=(0, 0)):
+        self.position = position
+
+    def draw(self, surface: pygame.Surface):
+        pygame.draw.line(surface, DEFAULT_DRAWABLE_COLOR,
+                         (self.position[0] - 10, self.position[1] - 10),
+                         (self.position[0] + 10, self.position[1] + 10))
+        pygame.draw.line(surface, DEFAULT_DRAWABLE_COLOR,
+                         (self.position[0] + 10, self.position[1] - 10),
+                         (self.position[0] - 10, self.position[1] + 10))
+
+
+class Player(Drawable):
+    def __init__(self, position=(0, 0)):
+        super().__init__(position)
 
 
 space = None
 state = []
+drawables = []
 sfx = {}
 ball_count = 0
+player = Player()
 
 
 class BlindSound:
@@ -102,7 +138,10 @@ def setup_level(space):
     """
     remove_balls_bricks(space)
 
-    fire_ball(space)
+    player.position = DEFAULT_POSITION
+    drawables.append(player)
+
+    fire_ball(space, player.position)
 
     # Spawn bricks
 
@@ -151,17 +190,13 @@ def spawn_walls(space):
     line_radius = 20
     wall_left = 50
     wall_right = WIDTH - 50
-    wall_bottom = 50
-    wall_top = HEIGHT - 50
+    wall_top = 50
+    wall_bottom = HEIGHT - 50
     static_lines = [
+        pymunk.Segment(space.static_body, (wall_left, wall_bottom - 25),
+                       (wall_right, wall_bottom + 25), line_radius),  # Bottom
         pymunk.Segment(space.static_body, (wall_left, wall_top),
-                       (wall_right, wall_top), line_radius),  # Top
-        # pymunk.Segment(space.static_body, (550, 550),
-        #               (550, 50), line_radius), # Right
-        # pymunk.Segment(space.static_body, (50, 550),
-        #               (50, 50), line_radius), # Left
-        pymunk.Segment(space.static_body, (wall_left, wall_bottom + 25),
-                       (wall_right, wall_bottom - 25), line_radius),  # Bottom
+                       (wall_right, wall_top), line_radius),  # Bottom
     ]
     for line in static_lines:
         line.color = pygame.Color("orange")
@@ -232,12 +267,14 @@ def wall_brick_collide(arbiter, space, data):
     return True
 
 
-def fire_ball(space):
+def fire_ball(space, position):
     tilt = random.randrange(*DIRECTION_TILT_RANGE_TUPLE)
     ball_direction = (DEFAULT_DIRECTION[0], DEFAULT_DIRECTION[1] + tilt)
+    if position is None:
+        position = DEFAULT_POSITION
     spawn_ball(
         space,
-        DEFAULT_POSITION,
+        position,
         ball_direction,
     )
 
@@ -249,8 +286,13 @@ def draw_hud(clock, font, screen):
 
     blit_text(font, screen, "BRICK_KNOCKER", (WIDTH - 150, 0))
     blit_text(font, screen, "[K] to spawn more bricks, add [Shift] to spray", (5, HEIGHT - 50))
-    blit_text(font, screen, "[Space] to spawn a ball, add [Shift] to spray", (5, HEIGHT - 35))
+    blit_text(font, screen, "[Space] to spawn a ball, add [Shift] to spray. Cursor arrows to move.", (5, HEIGHT - 35))
     blit_text(font, screen, "[R] to reset, [ESC] or [Q] to quit", (5, HEIGHT - 20))
+
+
+def draw_window(surface: pygame.Surface):
+    for d in drawables:
+        d.draw(surface)
 
 
 def blit_text(font, screen, text, position):
@@ -287,23 +329,31 @@ def parse_events(running, space):
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             return [EventState.Stop]  # Terminal
-        elif event.type == pygame.KEYDOWN and (
-                event.key in [pygame.K_ESCAPE, pygame.K_q]
-        ):
-            return [EventState.Stop]  # Terminal
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-            return [EventState.Restart]  # Terminal
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_k:
-            result.append(EventState.SpawnBricks)
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-            result.append(EventState.SpawnBall)
-        elif event.type == pygame.KEYDOWN and event.key == pygame.K_d:
-            result.append(EventState.Debug)
+        elif event.type == pygame.KEYDOWN:
+            if event.key in [pygame.K_ESCAPE, pygame.K_q]:
+                return [EventState.Stop]  # Terminal
+            elif event.key == pygame.K_r:
+                return [EventState.Restart]  # Terminal
+            elif event.key == pygame.K_k:
+                result.append(EventState.SpawnBricks)
+            elif event.key == pygame.K_SPACE:
+                result.append(EventState.SpawnBall)
+            elif event.key == pygame.K_d:
+                result.append(EventState.Debug)
 
     # Multi-events
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_LEFT]:
+        result.append(EventState.MoveLeft)
+    if keys[pygame.K_RIGHT]:
+        result.append(EventState.MoveRight)
+    if keys[pygame.K_UP]:
+        result.append(EventState.MoveUp)
+    if keys[pygame.K_DOWN]:
+        result.append(EventState.MoveDown)
+
     mods = pygame.key.get_mods()
     if mods & pygame.KMOD_SHIFT:
-        keys = pygame.key.get_pressed()
         if keys[pygame.K_SPACE]:
             result.append(EventState.SpawnBall)
         if keys[pygame.K_k]:
@@ -324,10 +374,10 @@ def main():
 
     # Physics stuff
     space = pymunk.Space()
-    space.gravity = (0, -900)
+    space.gravity = (0, 900)
     space.damping = 0.5
 
-    pymunk.pygame_util.positive_y_is_up = True
+    # pymunk.pygame_util.positive_y_is_up = True
     draw_options = pymunk.pygame_util.DrawOptions(screen)
 
     global state
@@ -335,6 +385,7 @@ def main():
     # Start game
     setup_level(space)
     last_time_culled = 0.0
+    move_dir = (0, 0)
 
     while running:
         # Cleanup any distant bodies
@@ -354,17 +405,29 @@ def main():
                 case EventState.Stop:
                     running = False
                 case EventState.SpawnBall:
-                    fire_ball(space)
+                    fire_ball(space, player.position)
                 case EventState.SpawnBricks:
                     spawn_bricks(space)
                 case EventState.Debug:
                     cleanup_bodies(space)
+                case EventState.MoveUp:
+                    move_dir = move_dir[0] + 0, move_dir[1] - 1
+                case EventState.MoveDown:
+                    move_dir = move_dir[0] + 0, move_dir[1] + 1
+                case EventState.MoveLeft:
+                    move_dir = move_dir[0] - 1, move_dir[1] + 0
+                case EventState.MoveRight:
+                    move_dir = move_dir[0] + 1, move_dir[1] + 0
 
-        ### Clear screen
+        # Move player
+        player.position = (player.position[0] + move_dir[0], player.position[1] + move_dir[1])
+
+        # Clear screen
         screen.fill(pygame.Color("darkgrey"))
 
-        ### Draw objects
+        # Draw objects
         space.debug_draw(draw_options)
+        draw_window(screen)
 
         if DEBUG_CAPTURE_STATE:
             state = []
@@ -372,12 +435,13 @@ def main():
                 s = "%s %s %s" % (x, x.body.position, x.body.velocity)
                 state.append(s)
 
-        ### Update physics
+        # Update physics
         fps = 60
         dt = 1.0 / fps
         space.step(dt)
+        move_dir = move_dir[0] * MOVE_DAMPEN_FACTOR, move_dir[1] * MOVE_DAMPEN_FACTOR
 
-        ### Info and flip screen
+        # Info and flip screen
         draw_hud(clock, font, screen)
 
         pygame.display.flip()
