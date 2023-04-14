@@ -10,8 +10,24 @@ if __name__ == '__main__':
 # import breakout
 # breakout.main()
 
-import brick_knocker
-brick_knocker.main()
+# import brick_knocker
+# brick_knocker.main()
+
+"""
+Pymunk Examples
+"""
+
+# import sys
+# sys.argv.append('/s')
+# from pymunk.examples import newtons_cradle
+# newtons_cradle.main()
+
+# import pymunk.examples.planet
+
+# import pymunk.examples.tank
+
+from pymunk.examples import camera
+camera.main()
 
 '''
 Packages

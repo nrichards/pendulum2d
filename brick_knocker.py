@@ -31,6 +31,7 @@ DEFAULT_POSITION = 100, 300
 DEFAULT_DIRECTION = 1000, 600
 DIRECTION_TILT_RANGE_TUPLE = (-300, 300)
 DRAW_FPS = True
+TARGET_FPS = 120
 COLLISION_TYPES = {
     "ball": 1,
     "brick": 2,
@@ -42,6 +43,7 @@ CULL_PERIOD_SEC = 1.0
 CULL_POSITION = 10 * WIDTH  # NOTE: Removes any physics bodies positioned outside this coordinate (x or y)
 DEBUG_LOG = False
 DEBUG_CAPTURE_STATE = False
+RANDOMIZE_BALL_SIZE = False
 MOVE_DAMPEN_FACTOR = 0.9
 
 
@@ -91,6 +93,7 @@ DEFAULT_MUTE = False
 
 class BlindSound:
     mute = DEFAULT_MUTE
+
     def __init__(self, filename):
         self.sound = None
         try:
@@ -177,10 +180,7 @@ def spawn_ball(space: pymunk.Space, position: Union[Vec2d, Tuple[float, float]],
     ball_body = pymunk.Body(1, float("inf"))
     ball_body.position = position
 
-    ball_shape = pymunk.Circle(ball_body, 5)
-    ball_shape.color = pygame.Color("pink")
-    ball_shape.elasticity = BALL_ELASTICITY
-    ball_shape.collision_type = COLLISION_TYPES["ball"]
+    ball_shape = create_ball_shape(ball_body, 5)
 
     ball_body.apply_impulse_at_local_point(Vec2d(*direction), (1, 1))
 
@@ -190,6 +190,14 @@ def spawn_ball(space: pymunk.Space, position: Union[Vec2d, Tuple[float, float]],
 
     global ball_count
     ball_count += 1
+
+
+def create_ball_shape(ball_body, radius):
+    ball_shape = pymunk.Circle(ball_body, radius)
+    ball_shape.color = pygame.Color("pink")
+    ball_shape.elasticity = BALL_ELASTICITY
+    ball_shape.collision_type = COLLISION_TYPES["ball"]
+    return ball_shape
 
 
 def spawn_walls(space):
@@ -292,7 +300,7 @@ def draw_hud(clock, font, screen):
 
     blit_text(font, screen, "BRICK_KNOCKER", (WIDTH - 150, 0))
     blit_text(font, screen, "[K] to spawn more bricks, add [Shift] to spray", (5, HEIGHT - 50))
-    blit_text(font, screen, "[Space] to spawn a ball, add [Shift] to spray. Cursor arrows to move.", (5, HEIGHT - 35))
+    blit_text(font, screen, "[Space] to spawn a ball, add [Shift] to spray. Arrows to move.", (5, HEIGHT - 35))
     blit_text(font, screen, "[R] to reset, [ESC] or [Q] to quit, [M] to mute", (5, HEIGHT - 20))
 
 
@@ -453,16 +461,33 @@ def main():
                 state.append(s)
 
         # Update physics
-        fps = 60
+        fps = TARGET_FPS
         dt = 1.0 / fps
         space.step(dt)
+
         move_dir = move_dir[0] * MOVE_DAMPEN_FACTOR, move_dir[1] * MOVE_DAMPEN_FACTOR
+
+        # Update objects
+        if RANDOMIZE_BALL_SIZE:
+            def randomize_circle_radius(shape):
+                new_radius = shape.radius + random.uniform(-0.4, 0.4)
+                replace_shape(shape, create_ball_shape(shape.body, new_radius))
+            circles = [shape for shape in space.shapes if isinstance(shape, pymunk.shapes.Circle)]
+            list(map(randomize_circle_radius, circles))
 
         # Info and flip screen
         draw_hud(clock, font, screen)
 
         pygame.display.flip()
         clock.tick(fps)
+
+
+def replace_shape(shape, with_shape):
+    my_space = shape.space
+    shape.space.remove(shape)
+    shape.body = None
+    my_space.add(with_shape)
+    return with_shape
 
 
 if __name__ == "__main__":
